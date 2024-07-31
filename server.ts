@@ -72,6 +72,8 @@ for (const port of ports) {
     ) => {
       console.log("message from", id);
 
+      console.log(message)
+
       const { method, pathname } = JSON.parse(message) as Payload;
       const writable = requesters.get(`${method}:${id}${pathname}`);
       if (!writable) throw "connection not found";
