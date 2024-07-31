@@ -70,7 +70,7 @@ for (const port of ports) {
       { data: { id } }: { data: { id: string } },
       message: string
     ) => {
-      console.log("message from", id);
+      console.log("message from", id, port);
 
       const { method, pathname } = JSON.parse(message) as Payload;
       const writable = requesters.get(`${method}:${id}${pathname}`);
