@@ -22,7 +22,6 @@
     "server": "bun server.ts",
     "dev:server": "bun --watch server.ts",
     "client": "bun --watch client.ts",
-    "demo": "bun --watch demo.ts",
     "client:upgrade": "bun rm -g @rubriclab/bunl && bun i -g @rubriclab/bunl@latest",
     "build": "BUILD=build/client.js && bun build client.ts --outdir build --target bun && echo -e \"#! /usr/bin/env bun\n$(cat $BUILD)\" > $BUILD",
     "npm:publish": "bun run build && npm publish"

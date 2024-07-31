@@ -1,23 +1,24 @@
-import { serve, type ServerWebSocket } from "bun";
-import { uid } from "./utils";
+import { serve, type Server, type ServerWebSocket } from "bun";
 import type { Client, Payload } from "./types";
 
-const port = Bun.env.PORT || 1234;
-const scheme = Bun.env.SCHEME || "http";
-const domain = Bun.env.DOMAIN || `localhost:${port}`;
+const ports = [1001, 1002];
 
-const clients = new Map<string, ServerWebSocket<Client>>();
-const requesters = new Map<string, WritableStream>();
+for (const port of ports) {
+  const scheme = Bun.env.SCHEME || "http";
+  const domain = Bun.env.DOMAIN || `localhost`;
 
-serve<Client>({
-  port,
-  fetch: async (req, server) => {
+  const clients = new Map<string, ServerWebSocket<Client>>();
+  const requesters = new Map<string, WritableStream>();
+
+  const fetch = async (req: Request, server: Server) => {
     const reqUrl = new URL(req.url);
 
     if (reqUrl.searchParams.has("new")) {
       const requested = reqUrl.searchParams.get("subdomain");
-      let id = requested || uid();
-      if (clients.has(id)) id = uid();
+      let id = requested;
+
+      if (!id) return new Response("id existed", { status: 500 });
+      if (clients.has(id)) return new Response("id existed", { status: 500 });
 
       const upgraded = server.upgrade(req, { data: { id } });
       if (upgraded) return;
@@ -53,18 +54,22 @@ serve<Client>({
     delete headers["content-encoding"]; // remove problematic header
 
     return new Response(body, { status, statusText, headers });
-  },
-  websocket: {
-    open(ws) {
+  };
+
+  const websocket = {
+    open(ws: ServerWebSocket<Client>) {
       clients.set(ws.data.id, ws);
       console.log(`\x1b[32m+ ${ws.data.id} (${clients.size} total)\x1b[0m`);
       ws.send(
         JSON.stringify({
-          url: `${scheme}://${ws.data.id}.${domain}`,
+          url: `${scheme}://${ws.data.id}.${domain}:${port}`,
         })
       );
     },
-    message: async ({ data: { id } }, message: string) => {
+    message: async (
+      { data: { id } }: { data: { id: string } },
+      message: string
+    ) => {
       console.log("message from", id);
 
       const { method, pathname } = JSON.parse(message) as Payload;
@@ -77,11 +82,17 @@ serve<Client>({
       await writer.write(message);
       await writer.close();
     },
-    close({ data }) {
+    close({ data }: { data: Client }) {
       console.log("closing", data.id);
       clients.delete(data.id);
     },
-  },
-});
+  };
 
-console.log(`websocket server up at ws://${domain}`);
+  serve<Client>({
+    port,
+    fetch,
+    websocket,
+  });
+}
+
+console.log(`websocket server up`);
