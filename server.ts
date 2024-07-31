@@ -1,7 +1,7 @@
 import { serve, type Server, type ServerWebSocket } from "bun";
 import type { Client, Payload } from "./types";
 
-const ports = [12221];
+const ports = [12221, 12222];
 
 for (const port of ports) {
   const scheme = Bun.env.SCHEME || "http";
@@ -68,13 +68,12 @@ for (const port of ports) {
     },
     message: async (
       { data: { id } }: { data: { id: string } },
-      message: string
+      message: string | Buffer
     ) => {
-      console.log("message from", id);
+      console.log("message from", id, typeof message === "string");
 
       // Verifique o tipo de dados recebidos
       if (typeof message === "string") {
-        // Dados textuais
         const { method, pathname } = JSON.parse(message) as Payload;
         const writable = requesters.get(`${method}:${id}${pathname}`);
         if (!writable) throw "connection not found";
@@ -85,7 +84,6 @@ for (const port of ports) {
         await writer.write(message);
         await writer.close();
       } else {
-        // Dados binários (ArrayBuffer)
         const writable = requesters.get(`binary:${id}`);
         if (!writable) throw "connection not found";
 
