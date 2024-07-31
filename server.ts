@@ -68,31 +68,19 @@ for (const port of ports) {
     },
     message: async (
       { data: { id } }: { data: { id: string } },
-      message: string | Buffer
+      message: string
     ) => {
-      console.log("message from", id, typeof message === "string");
+      console.log("message from", id);
 
-      // Verifique o tipo de dados recebidos
-      if (typeof message === "string") {
-        const { method, pathname } = JSON.parse(message) as Payload;
-        const writable = requesters.get(`${method}:${id}${pathname}`);
-        if (!writable) throw "connection not found";
+      const { method, pathname } = JSON.parse(message) as Payload;
+      const writable = requesters.get(`${method}:${id}${pathname}`);
+      if (!writable) throw "connection not found";
 
-        if (writable.locked) return;
+      if (writable.locked) return;
 
-        const writer = writable.getWriter();
-        await writer.write(message);
-        await writer.close();
-      } else {
-        const writable = requesters.get(`binary:${id}`);
-        if (!writable) throw "connection not found";
-
-        if (writable.locked) return;
-
-        const writer = writable.getWriter();
-        await writer.write(new Uint8Array(message)); // Convertendo ArrayBuffer para Uint8Array
-        await writer.close();
-      }
+      const writer = writable.getWriter();
+      await writer.write(message);
+      await writer.close();
     },
     close({ data }: { data: Client }) {
       console.log("closing", data.id);
