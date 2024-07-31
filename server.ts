@@ -31,10 +31,11 @@ for (const port of ports) {
       return new Response(`${subdomain} not found`, { status: 404 });
     }
 
+    // The magic: forward the req to the client
     const client = clients.get(subdomain)!;
     const { method, url, headers: reqHeaders } = req;
+    const reqBody = await req.text();
     const pathname = new URL(url).pathname;
-    const reqBody = await req.arrayBuffer(); // Use arrayBuffer() for binary data
     const payload: Payload = {
       method,
       pathname,
@@ -47,17 +48,10 @@ for (const port of ports) {
     requesters.set(`${method}:${subdomain}${pathname}`, writable);
     client.send(JSON.stringify(payload));
 
-    const reader = readable.getReader();
-    const { value, done } = await reader.read();
-    if (done) {
-      return new Response(null, { status: 204 }); // No content if done
-    }
+    const res = await readable.getReader().read();
+    const { status, statusText, headers, body } = JSON.parse(res.value);
 
-    const { status, statusText, headers, body } = JSON.parse(
-      new TextDecoder().decode(value)
-    );
-
-    delete headers["content-encoding"]; // Remove problematic header
+    delete headers["content-encoding"]; // remove problematic header
 
     return new Response(body, { status, statusText, headers });
   };
@@ -74,39 +68,18 @@ for (const port of ports) {
     },
     message: async (
       { data: { id } }: { data: { id: string } },
-      message: any
+      message: string
     ) => {
       console.log("message from", id);
 
-      let parsedMessage: Payload;
-
-      if (message instanceof ArrayBuffer) {
-        // Converta ArrayBuffer para string usando TextDecoder
-        const decoder = new TextDecoder();
-        const messageString = decoder.decode(message);
-        parsedMessage = JSON.parse(messageString) as Payload;
-      } else {
-        // Se for uma string, use-a diretamente
-        parsedMessage = JSON.parse(message) as Payload;
-      }
-
-      const { method, pathname } = parsedMessage;
-
+      const { method, pathname } = JSON.parse(message) as Payload;
       const writable = requesters.get(`${method}:${id}${pathname}`);
-      if (!writable) throw new Error("connection not found");
+      if (!writable) throw "connection not found";
 
       if (writable.locked) return;
 
       const writer = writable.getWriter();
-
-      // Se a mensagem for um ArrayBuffer, escreva os dados binários diretamente
-      if (message instanceof ArrayBuffer) {
-        await writer.write(new Uint8Array(message));
-      } else {
-        // Caso contrário, escreva a mensagem como texto
-        await writer.write(message);
-      }
-
+      await writer.write(message);
       await writer.close();
     },
     close({ data }: { data: Client }) {
