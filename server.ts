@@ -1,7 +1,7 @@
 import { serve, type Server, type ServerWebSocket } from "bun";
 import type { Client, Payload } from "./types";
 
-const ports = [1001, 1002];
+const ports = [12221];
 
 for (const port of ports) {
   const scheme = Bun.env.SCHEME || "http";
@@ -72,15 +72,29 @@ for (const port of ports) {
     ) => {
       console.log("message from", id);
 
-      const { method, pathname } = JSON.parse(message) as Payload;
-      const writable = requesters.get(`${method}:${id}${pathname}`);
-      if (!writable) throw "connection not found";
+      // Verifique o tipo de dados recebidos
+      if (typeof message === "string") {
+        // Dados textuais
+        const { method, pathname } = JSON.parse(message) as Payload;
+        const writable = requesters.get(`${method}:${id}${pathname}`);
+        if (!writable) throw "connection not found";
 
-      if (writable.locked) return;
+        if (writable.locked) return;
 
-      const writer = writable.getWriter();
-      await writer.write(message);
-      await writer.close();
+        const writer = writable.getWriter();
+        await writer.write(message);
+        await writer.close();
+      } else {
+        // Dados binários (ArrayBuffer)
+        const writable = requesters.get(`binary:${id}`);
+        if (!writable) throw "connection not found";
+
+        if (writable.locked) return;
+
+        const writer = writable.getWriter();
+        await writer.write(new Uint8Array(message)); // Convertendo ArrayBuffer para Uint8Array
+        await writer.close();
+      }
     },
     close({ data }: { data: Client }) {
       console.log("closing", data.id);
