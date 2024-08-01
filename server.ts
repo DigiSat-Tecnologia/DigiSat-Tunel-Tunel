@@ -40,7 +40,7 @@ for (const port of ports) {
       method,
       pathname,
       body: reqBody,
-      headers: reqHeaders,
+      headers: Object.fromEntries(reqHeaders),
     };
 
     const { writable, readable } = new TransformStream();
@@ -53,7 +53,12 @@ for (const port of ports) {
 
     delete headers["content-encoding"]; // remove problematic header
 
-    return new Response(body, { status, statusText, headers });
+    // Decodificar a resposta base64 se necessário
+    const responseBody = headers['content-type']?.startsWith('image/')
+      ? Buffer.from(body, 'base64')
+      : body;
+
+    return new Response(responseBody, { status, statusText, headers });
   };
 
   const websocket = {
