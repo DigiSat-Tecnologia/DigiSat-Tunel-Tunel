@@ -53,7 +53,6 @@ for (const port of ports) {
 
     delete headers["content-encoding"]; // remove problematic header
 
-    // Decodificar a resposta base64 se necessário
     const responseBody = headers["content-type"]?.startsWith("image/")
       ? Buffer.from(body, "base64")
       : body;
