@@ -2,7 +2,7 @@ import { serve, type Server, type ServerWebSocket } from "bun";
 import type { Client, Payload } from "./types";
 
 const ports = [
-  12220, 12221, 12222, 12223, 12224, 12225, 12226, 12227, 12228, 12229, 12230,
+  12220, 12221, 12222, 12223, 12224, 12225, 12226, 12227, 12228, 12229, 12230, 8080,
 ];
 
 for (const port of ports) {
