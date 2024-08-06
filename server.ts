@@ -2,38 +2,39 @@ import { serve, type Server, type ServerWebSocket } from "bun";
 import type { Client, Payload } from "./types";
 
 const ports = [
-  12220, 12221, 12222, 12223, 12224, 12225, 12226, 12227, 12228, 12229, 12230, 8080,
+  12220, 12221, 12222, 12223, 12224, 12225, 12226, 12227, 12228, 12229, 12230,
+  8080,
 ];
 
-for (const port of ports) {
-  const scheme = Bun.env.SCHEME || "http";
-  const domain = Bun.env.DOMAIN || "localhost";
+const scheme = "http";
+const domain = "localhost";
 
-  const clients = new Map<string, ServerWebSocket<Client>>();
-  const requesters = new Map<string, WritableStreamDefaultWriter>();
+const clients = new Map<string, ServerWebSocket<Client>>();
+const requesters = new Map<string, WritableStreamDefaultWriter>();
 
-  const fetch = async (req: Request, server: Server) => {
+const fetch = async (port: number, req: Request, server: Server) => {
+  try {
     const reqUrl = new URL(req.url);
 
     if (reqUrl.searchParams.has("new")) {
       const requested = reqUrl.searchParams.get("subdomain");
       let id = requested;
 
-      if (!id) return new Response("id existed", { status: 500 });
-      if (clients.has(id)) return new Response("id existed", { status: 500 });
+      if (!id) return new Response("id existed", { status: 400 });
+      if (clients.has(`${id}.${port}`)) return new Response("id existed", { status: 400 });
 
       const upgraded = server.upgrade(req, { data: { id } });
       if (upgraded) return;
-      else return new Response("upgrade failed", { status: 500 });
+      else return new Response("upgrade failed", { status: 400 });
     }
 
     const subdomain = reqUrl.hostname.split(".")[0];
 
-    if (!clients.has(subdomain)) {
+    if (!clients.has(`${subdomain}.${port}`)) {
       return new Response(`${subdomain} not found`, { status: 404 });
     }
 
-    const client = clients.get(subdomain)!;
+    const client = clients.get(`${subdomain}.${port}`)!;
     const { method, url, headers: reqHeaders } = req;
     const reqBody = await req.text();
     const pathname = new URL(url).pathname;
@@ -45,7 +46,7 @@ for (const port of ports) {
     };
 
     const { writable, readable } = new TransformStream();
-    requesters.set(`${method}:${subdomain}${pathname}`, writable.getWriter());
+    requesters.set(`${method}:${subdomain}${pathname}.${port}`, writable.getWriter());
     client.send(JSON.stringify(payload));
 
     const res = await readable.getReader().read();
@@ -58,36 +59,40 @@ for (const port of ports) {
       : body;
 
     return new Response(responseBody, { status, statusText, headers });
-  };
+  } catch (err) {
+    return new Response("fail", { status: 500   ,  });
+  }
+};
 
-  const websocket = {
-    open(ws: ServerWebSocket<Client>) {
-      clients.set(ws.data.id, ws);
-      console.log(`\x1b[32m+ ${ws.data.id} (${clients.size} total)\x1b[0m`);
-      ws.send(
-        JSON.stringify({
-          url: `${scheme}://${ws.data.id}.${domain}:${port}`,
-        })
-      );
-    },
-    message: async (ws: ServerWebSocket<Client>, message: string) => {
-      const { method, pathname, ...rest } = JSON.parse(message) as Payload;
-      const writer = requesters.get(`${method}:${ws.data.id}${pathname}`);
-      if (!writer) throw "connection not found";
+const websocket = (port: number) => ({
+  open(ws: ServerWebSocket<Client>) {
+    clients.set(`${ws.data.id}.${port}`, ws);
+    console.log(`\x1b[32m+ ${ws.data.id} (${clients.size} total) ${port}\x1b[0m`);
+    ws.send(
+      JSON.stringify({
+        url: `${scheme}://${ws.data.id}.${domain}:${port}`,
+      })
+    );
+  },
+  message: async (ws: ServerWebSocket<Client>, message: string) => {
+    const { method, pathname, ...rest } = JSON.parse(message) as Payload;
+    const writer = requesters.get(`${method}:${ws.data.id}${pathname}.${port}`);
+    if (!writer) throw "connection not found";
 
-      await writer.write(message);
-      await writer.close();
-    },
-    close(ws: ServerWebSocket<Client>) {
-      console.log("closing", ws.data.id);
-      clients.delete(ws.data.id);
-    },
-  };
+    await writer.write(message);
+    await writer.close();
+  },
+  close(ws: ServerWebSocket<Client>) {
+    console.log(`\x1b[31m- closing ${ws.data.id} ${port}\x1b[0m`);
+    clients.delete(`${ws.data.id}.${port}`);
+  },
+});
 
+for (const port of ports) {
   serve<Client>({
     port,
-    fetch,
-    websocket,
+    fetch: (req, server) => fetch(port, req, server),
+    websocket: websocket(port),
   });
 }
 
