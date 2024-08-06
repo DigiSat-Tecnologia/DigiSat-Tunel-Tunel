@@ -1,44 +1,27 @@
 {
-  "bin": {
-    "bunl": "build/client.js"
-  },
-  "name": "@rubriclab/bunl",
-  "description": "Expose localhost to the world",
-  "version": "0.1.24",
-  "license": "MIT",
+  "name": "@digisat/localtunnel",
+  "version": "1.0.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/RubricLab/bunl.git"
   },
-  "dependencies": {
-    "human-id": "^4.1.1",
-    "open": "^10.1.0"
-  },
+  "main": "server.ts",
   "devDependencies": {
     "@types/bun": "latest"
   },
-  "main": "build/client.js",
-  "scripts": {
-    "server": "bun server.ts",
-    "dev:server": "bun --watch server.ts",
-    "client": "bun --watch client.ts",
-    "client:upgrade": "bun rm -g @rubriclab/bunl && bun i -g @rubriclab/bunl@latest",
-    "build": "BUILD=build/client.js && bun build client.ts --outdir build --target bun && echo -e \"#! /usr/bin/env bun\n$(cat $BUILD)\" > $BUILD",
-    "npm:publish": "bun run build && npm publish"
-  },
-  "type": "module",
   "peerDependencies": {
     "typescript": "^5.0.0"
   },
-  "publishConfig": {
-    "@RubricLab:registry": "https://registry.npmjs.org",
-    "access": "public",
-    "registry": "https://registry.npmjs.org"
+  "bin": {
+    "bunl": "build/client.js"
   },
+  "description": "Expose localhost to the world",
   "homepage": "https://github.com/RubricLab/bunl#readme",
-  "keywords": [
-    "local",
-    "tunnel",
-    "rubric"
-  ]
+  "license": "MIT",
+  "scripts": {
+    "server": "bun server.ts",
+    "dev:server": "bun --watch server.ts",
+    "npm:publish": "npm publish"
+  },
+  "type": "module"
 }
