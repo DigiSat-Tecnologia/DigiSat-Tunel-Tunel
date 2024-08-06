@@ -83,8 +83,8 @@ const websocket = (port: number) => ({
     await writer.close();
   },
   close(ws: ServerWebSocket<Client>) {
-    console.log(`\x1b[31m- ${ws.data.id} (${clients.size} total) ${port}\x1b[0m`);
     clients.delete(`${ws.data.id}.${port}`);
+    console.log(`\x1b[31m- ${ws.data.id} (${clients.size} total) ${port}\x1b[0m`);
   },
 });
 
