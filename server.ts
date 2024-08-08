@@ -16,7 +16,7 @@ const fetch = async (port: number, req: Request, server: Server) => {
   try {
     const reqUrl = new URL(req.url);
 
-    console.log('REQUEST: ' + reqUrl.toString());
+    console.log("RECEIVED", req.url)
 
     if (reqUrl.searchParams.has("new")) {
       const requested = reqUrl.searchParams.get("subdomain");
