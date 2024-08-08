@@ -13,7 +13,7 @@
     "typescript": "^5.0.0"
   },
   "bin": {
-    "bunl": "build/client.js"
+    "bunl": "server.ts"
   },
   "description": "Expose localhost to the world",
   "homepage": "https://github.com/RubricLab/bunl#readme",
