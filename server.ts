@@ -1,5 +1,6 @@
 import { serve, type Server, type ServerWebSocket } from "bun";
 import crypto from "crypto";
+import { extname } from "path";
 import type { Client, Payload } from "./types";
 import type { ReadableStreamReadResult } from "stream/web";
 
@@ -16,7 +17,6 @@ const fetch = async (port: number, req: Request, server: Server) => {
 
     if (reqUrl.searchParams.has("new")) {
       const id = reqUrl.searchParams.get("subdomain");
-
       if (!id) return new Response("id missing", { status: 400 });
       if (clients.has(`${id}.${port}`))
         return new Response("id existed", { status: 400 });
@@ -31,14 +31,18 @@ const fetch = async (port: number, req: Request, server: Server) => {
     const subdomain = host.split(".")[0];
     const key = `${subdomain}.${port}`;
 
-    if (!clients.has(key)) {
+    if (!clients.has(key))
       return new Response(`${subdomain} not found`, { status: 404 });
-    }
 
     const client = clients.get(key)!;
     const { method, url, headers: reqHeaders } = req;
-    const pathname = new URL(url).pathname;
+    const urlToUse = new URL(url);
+
+    const pathname = urlToUse.pathname;
+    const extraParams =
+      urlToUse.search + urlToUse.hash + urlToUse.searchParams.toString();
     const reqBody = await req.text();
+
     const requestId = crypto.randomUUID();
     const legacyKey = `${method}:${subdomain}${pathname}.${port}`;
 
@@ -46,13 +50,16 @@ const fetch = async (port: number, req: Request, server: Server) => {
       requestId,
       method,
       pathname,
+      extraParams,
       body: reqBody,
       headers: Object.fromEntries(reqHeaders.entries()),
     };
 
     const { writable, readable } = new TransformStream();
-    requesters.set(requestId, writable.getWriter());
-    requesters.set(legacyKey, writable.getWriter());
+    const writer = writable.getWriter();
+
+    requesters.set(requestId, writer);
+    requesters.set(legacyKey, writer);
 
     client.send(JSON.stringify(payload));
 
@@ -64,17 +71,32 @@ const fetch = async (port: number, req: Request, server: Server) => {
     requesters.delete(requestId);
     requesters.delete(legacyKey);
 
+    if (
+      !result ||
+      (result as any).done ||
+      !(result as ReadableStreamReadResult<any>).value
+    ) {
+      return new Response("Timeout or connection closed", { status: 504 });
+    }
+
     const { status, statusText, headers, body } = JSON.parse(
       (result as ReadableStreamReadResult<any>).value
     );
 
+    const contentEncoding = headers["content-encoding"];
+
+    let responseBody: Buffer | string = Buffer.from(body, "base64");
+
     delete headers["content-encoding"];
 
-    const responseBody = headers["content-type"]?.startsWith("image/")
-      ? Buffer.from(body, "base64")
-      : body;
-
-    return new Response(responseBody, { status, statusText, headers });
+    return new Response(new Uint8Array(responseBody), {
+      status,
+      statusText,
+      headers: {
+        ...headers,
+        ...(contentEncoding ? {} : { "content-encoding": undefined }),
+      },
+    });
   } catch (err) {
     console.error("Proxy error:", err);
     return new Response("fail", { status: 500 });
@@ -88,9 +110,7 @@ const websocket = (port: number) => ({
       `\x1b[32m+ ${ws.data.id} (${clients.size} total) ${port}\x1b[0m`
     );
     ws.send(
-      JSON.stringify({
-        url: `${scheme}://${ws.data.id}.${domain}:${port}`,
-      })
+      JSON.stringify({ url: `${scheme}://${ws.data.id}.${domain}:${port}` })
     );
   },
   message: async (ws: ServerWebSocket<Client>, message: string) => {
@@ -105,7 +125,6 @@ const websocket = (port: number) => ({
       return;
     }
 
-    // fallback para clientes antigos que não enviam requestId
     const { method, pathname } = parsed;
     const legacyKey = `${method}:${ws.data.id}${pathname}.${port}`;
     const writer = requesters.get(legacyKey);

@@ -6,6 +6,7 @@ export type Payload = {
   statusText?: string;
   method?: string;
   pathname?: string;
+  extraParams?: string;
   body: string;
   headers: object;
 };
