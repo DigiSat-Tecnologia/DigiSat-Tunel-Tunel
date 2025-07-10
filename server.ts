@@ -66,7 +66,7 @@ const fetch = async (port: number, req: Request, server: Server) => {
     const timeout = setTimeout(() => {
       requestMap.delete(requestId);
       writer.close();
-    }, 15000);
+    }, 60000);
 
     while (true) {
       const { done, value } = await reader.read();
