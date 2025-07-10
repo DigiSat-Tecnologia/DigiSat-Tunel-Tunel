@@ -1,15 +1,16 @@
 import { serve, type Server, type ServerWebSocket } from "bun";
 import crypto from "crypto";
-import { extname } from "path";
 import type { Client, Payload } from "./types";
-import type { ReadableStreamReadResult } from "stream/web";
 
 const ports = [12221, 12229, 8080];
 const scheme = "http";
 const domain = "localhost";
 
 const clients = new Map<string, ServerWebSocket<Client>>();
-const requesters = new Map<string, WritableStreamDefaultWriter>();
+const requestMap = new Map<
+  string,
+  { writer: WritableStreamDefaultWriter; meta?: Payload }
+>();
 
 const fetch = async (port: number, req: Request, server: Server) => {
   try {
@@ -37,15 +38,11 @@ const fetch = async (port: number, req: Request, server: Server) => {
     const client = clients.get(key)!;
     const { method, url, headers: reqHeaders } = req;
     const urlToUse = new URL(url);
-
     const pathname = urlToUse.pathname;
-    const extraParams =
-      urlToUse.search + urlToUse.hash + urlToUse.searchParams.toString();
+    const extraParams = urlToUse.hash + urlToUse.searchParams.toString();
     const reqBody = await req.text();
 
     const requestId = crypto.randomUUID();
-    const legacyKey = `${method}:${subdomain}${pathname}.${port}`;
-
     const payload: Payload = {
       requestId,
       method,
@@ -58,44 +55,50 @@ const fetch = async (port: number, req: Request, server: Server) => {
     const { writable, readable } = new TransformStream();
     const writer = writable.getWriter();
 
-    requesters.set(requestId, writer);
-    requesters.set(legacyKey, writer);
+    requestMap.set(requestId, { writer });
 
     client.send(JSON.stringify(payload));
 
-    const result = await Promise.race([
-      readable.getReader().read(),
-      new Promise((_, reject) => setTimeout(() => reject("timeout"), 10000)),
-    ]);
+    const bodyChunks: Uint8Array[] = [];
 
-    requesters.delete(requestId);
-    requesters.delete(legacyKey);
+    const reader = readable.getReader();
 
-    if (
-      !result ||
-      (result as any).done ||
-      !(result as ReadableStreamReadResult<any>).value
-    ) {
-      return new Response("Timeout or connection closed", { status: 504 });
+    const timeout = setTimeout(() => {
+      requestMap.delete(requestId);
+      writer.close();
+    }, 15000);
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) bodyChunks.push(value);
     }
 
-    const { status, statusText, headers, body } = JSON.parse(
-      (result as ReadableStreamReadResult<any>).value
+    clearTimeout(timeout);
+
+    if (bodyChunks.length === 0) {
+      return new Response("No response from client", { status: 504 });
+    }
+
+    const fullData = Buffer.concat(bodyChunks);
+    const meta = requestMap.get(requestId)?.meta;
+
+    if (!meta) {
+      return new Response("No metadata received", { status: 500 });
+    }
+
+    const headers = Object.fromEntries(
+      Object.entries(meta.headers || {}).filter(
+        ([_, v]) => typeof v === "string"
+      )
     );
-
-    const contentEncoding = headers["content-encoding"];
-
-    let responseBody: Buffer | string = Buffer.from(body, "base64");
 
     delete headers["content-encoding"];
 
-    return new Response(new Uint8Array(responseBody), {
-      status,
-      statusText,
-      headers: {
-        ...headers,
-        ...(contentEncoding ? {} : { "content-encoding": undefined }),
-      },
+    return new Response(new Uint8Array(fullData), {
+      status: meta.status || 200,
+      statusText: meta.statusText,
+      headers,
     });
   } catch (err) {
     console.error("Proxy error:", err);
@@ -109,40 +112,39 @@ const websocket = (port: number) => ({
     console.log(
       `\x1b[32m+ ${ws.data.id} (${clients.size} total) ${port}\x1b[0m`
     );
-    ws.send(
-      JSON.stringify({ url: `${scheme}://${ws.data.id}.${domain}:${port}` })
-    );
   },
-  message: async (ws: ServerWebSocket<Client>, message: string) => {
-    const parsed = JSON.parse(message);
-    const requestId = parsed.requestId;
 
-    if (requestId && requesters.has(requestId)) {
-      const writer = requesters.get(requestId)!;
-      await writer.write(message);
-      await writer.close();
-      requesters.delete(requestId);
-      return;
+  message: async (ws: ServerWebSocket<Client>, message: string | Buffer) => {
+    if (typeof message === "string") {
+      const parsed: Payload = JSON.parse(message);
+      const { requestId } = parsed;
+
+      if (!requestId) return;
+
+      const context = requestMap.get(requestId);
+      if (context) context.meta = parsed;
+    } else if (typeof Buffer !== "undefined" && message instanceof Buffer) {
+      // mensagem binária
+      const requestId = [...requestMap.entries()].find(([_, v]) => v.meta)?.[0];
+      const writer = requestId ? requestMap.get(requestId)?.writer : null;
+      if (writer) {
+        await writer.write(new Uint8Array(message));
+        await writer.close();
+        requestMap.delete(requestId!);
+      }
     }
-
-    const { method, pathname } = parsed;
-    const legacyKey = `${method}:${ws.data.id}${pathname}.${port}`;
-    const writer = requesters.get(legacyKey);
-
-    if (!writer) {
-      console.error("⚠️ Writer não encontrado para requestId ou legacyKey");
-      return;
-    }
-
-    await writer.write(message);
-    await writer.close();
-    requesters.delete(legacyKey);
   },
+
   close(ws: ServerWebSocket<Client>) {
     clients.delete(`${ws.data.id}.${port}`);
     console.log(
       `\x1b[31m- ${ws.data.id} (${clients.size} total) ${port}\x1b[0m`
     );
+  },
+
+  error(ws: ServerWebSocket<Client>, err: Error) {
+    console.error(`WebSocket error for ${ws.data.id} on port ${port}:`, err);
+    clients.delete(`${ws.data.id}.${port}`);
   },
 });
 
